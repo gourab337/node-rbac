@@ -2,6 +2,9 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const bodyParser = require('body-parser');
 const { encrypt, decrypt } = require('./encrypt');
+const dbConn = require('./dbConnection/mongoConnect');
+const { UserModel } = require('./models/UserModel');
+const bcrypt = require('bcrypt');
 
 const app = express();
 const port = 4000;
@@ -10,12 +13,6 @@ app.use(bodyParser.json());
 
 // Secret key to sign JWT tokens
 const secretKey = `u_K/'}L10o4E8%&XHCe,*zC~5Yn4wD`;
-
-// Sample user data with roles
-const users = [
-  { id: 1, username: 'user1', password: 'password1', role: 'user' },
-  { id: 2, username: 'admin', password: 'adminpassword', role: 'admin' },
-];
 
 // Authentication middleware
 const authenticateToken = (req, res, next) => {
@@ -38,43 +35,83 @@ app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
 
-app.post('/generateToken', (req, res) => {
+app.post('/generateToken', async (req, res) => {
     try{
-        const { username, password } = req.body;
-        const user = users.find((u) => u.username === username && u.password === password);
+        const { email, password } = req.body;
+        const user = await UserModel.findOne({email : email});
         if (!user) return res.status(401).send('Invalid credentials');
-        let payloadData = { id: user.id, username: user.username, role: user.role };
-        payloadData = JSON.stringify(payloadData);
-        const encryptedData = encrypt(payloadData);
-        const token = jwt.sign( encryptedData, secretKey);
-        res.json({ token });
+        bcrypt.compare(password, user.password, (bcrypt_err, result) => {
+            if(bcrypt_err) {
+                return res.status(500).send({ message: "Internal Server Error", details: bcrypt_err});
+            }
+            if(!result) {
+                res.status(500).send({ message: "Invalid Credentials"});
+            } else {
+                let payloadData = { patient_id: user.patient_id, policyholder_id: user.policyholder_id, user_type: user.user_type, full_name: user.full_name, email: user.email, phone: user.phone, status: user.status, authority: user.authority, department: user.department, profile_pic: user.profile_pic, join_date: user.join_date, login_mode: user.login_mode};
+                payloadData = JSON.stringify(payloadData);
+                const encryptedData = encrypt(payloadData);
+                const token = jwt.sign( encryptedData, secretKey, { expiresIn: '15m' });
+                res.json({ token });
+            }
+        });
     } catch (err) {
         res.status(500).send({ message: "Internal Server Error", details: err});
     }
 });
+
   
-  app.get('/user', authenticateToken, (req, res) => {
+app.get('/user', authenticateToken, (req, res) => {
     try {
-        if (req.user.role === 'user') {
+        if (req.user.authority === 'user') {
             res.send('User Content');
           } else {
             res.status(403).send('Forbidden');
           }
     } catch (err) {
-        res.status(500).send({ message: "Internal Server Error", details: err})
+        res.status(500).send({ message: "Internal Server Error", details: err});
     }
 });
   
-  app.get('/admin', authenticateToken, (req, res) => {
+app.get('/admin', authenticateToken, (req, res) => {
     try {
-        if (req.user.role === 'admin') {
+        if (req.user.authority === 'admin') {
             res.send('Admin Content');
           } else {
             res.status(403).send('Forbidden');
           }
     } catch (err) {
-        res.status(500).send({ message: "Internal Server Error", details: err})
+        res.status(500).send({ message: "Internal Server Error", details: err});
     }   
 });
 
-  
+app.post('/newUser', async (req, res) => {
+    try {
+        const { patient_id, policyholder_id, user_type, full_name, email, phone, password, status, authority, department, profile_pic, join_date, login_mode } = req.body;
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = {
+            patient_id: patient_id,
+            policyholder_id: policyholder_id,
+            user_type: user_type,
+            full_name: full_name,
+            email: email,
+            phone: phone,
+            password: hashedPassword,
+            status: status,
+            authority: authority,
+            department: department,
+            profile_pic: profile_pic,
+            join_date: join_date,
+            login_mode: login_mode
+        };
+
+        try{
+            await UserModel(user).save();
+            res.status(200).send({ message: `User ${user.email} created successfully!`});
+
+        } catch(err) {
+            res.status(500).send({ message: `Failed to create user with error: ${err.message}`});
+        }
+    } catch (err) {
+        res.status(500).send({ message: "Internal Server Error", details: err});
+    }
+});
