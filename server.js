@@ -4,6 +4,7 @@ const bodyParser = require('body-parser');
 const dbConn = require('./dbConnection/mongoConnect');
 const tokenRouter = require('./routes/v1/tokenRouter');
 const userRouter = require('./routes/v1/userRouter');
+const policyRouter = require('./routes/v1/policyRouter');
 
 require('dotenv').config();
 
@@ -17,6 +18,9 @@ app.use('/v1', tokenRouter);
 
 // user
 app.use('/v1', userRouter);
+
+// policy
+app.use('/v1', policyRouter);
 
 
 app.listen(port, () => {
